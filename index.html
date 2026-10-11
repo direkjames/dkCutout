@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="direk james" />
+  <meta name="description" content="Free background remover. Runs entirely in your browser — your photos never leave your device." />
+  <title>dkCutout — Free Background Remover</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><span class="logo">✂</span> dk<b>Cutout</b></div>
+    <span class="badge">100% free · runs on your device</span>
+  </header>
+
+  <main>
+    <section class="hero" id="hero">
+      <h1>Remove backgrounds.<br /><span>Keep every pixel.</span></h1>
+      <p>Drop a photo and get a transparent PNG at the exact original size. Nothing is uploaded — the AI runs right in your browser.</p>
+
+      <label class="drop" id="drop">
+        <input type="file" id="file" accept="image/png,image/jpeg,image/webp" hidden />
+        <div class="drop-icon">⬆</div>
+        <strong>Drop an image here</strong>
+        <span>or click to choose · you can also paste (Ctrl+V)</span>
+        <small>PNG, JPG or WEBP</small>
+      </label>
+
+      <div class="options">
+        <label>Quality
+          <select id="model">
+            <option value="isnet_fp16" selected>Best (≈80 MB, first time only)</option>
+            <option value="isnet_quint8">Fast (≈40 MB, first time only)</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <section class="work hidden" id="work">
+      <div class="status" id="status">
+        <div class="status-text" id="statusText">Getting ready…</div>
+        <div class="bar"><div class="fill" id="fill"></div></div>
+      </div>
+
+      <div class="compare hidden" id="compare">
+        <div class="layer checker"><img id="resultImg" alt="Result with background removed" /></div>
+        <div class="layer before" id="beforeLayer"><img id="originalImg" alt="Original photo" /></div>
+        <div class="handle" id="handle"><span>⇆</span></div>
+        <span class="tag tag-l">Before</span>
+        <span class="tag tag-r">After</span>
+      </div>
+
+      <div class="actions hidden" id="actions">
+        <div class="meta" id="meta"></div>
+        <div class="btns">
+          <button class="ghost" id="again">New image</button>
+          <button class="primary" id="download">Download PNG</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    Made by direk james · Background removal powered by
+    <a href="https://github.com/imgly/background-removal-js" target="_blank" rel="noopener">@imgly/background-removal</a> (AGPL-3.0)
+  </footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
