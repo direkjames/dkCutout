@@ -45,12 +45,38 @@
         <div class="bar"><div class="fill" id="fill"></div></div>
       </div>
 
+      <div class="toolbar hidden" id="toolbar">
+        <div class="seg" id="modes">
+          <button data-mode="compare" class="on">Compare</button>
+          <button data-mode="restore">Restore brush</button>
+          <button data-mode="erase">Erase brush</button>
+        </div>
+        <div class="brush-tools hidden" id="brushTools">
+          <label>Size <input type="range" id="brushSize" min="3" max="100" value="25" /></label>
+          <button class="ghost small" id="undo">Undo</button>
+          <button class="ghost small" id="resetEdits">Reset</button>
+        </div>
+      </div>
+
       <div class="compare hidden" id="compare">
-        <div class="layer checker"><img id="resultImg" alt="Result with background removed" /></div>
+        <div class="layer checker">
+          <img id="ghostImg" class="ghost-img" alt="" />
+          <canvas id="resultCanvas"></canvas>
+        </div>
         <div class="layer before" id="beforeLayer"><img id="originalImg" alt="Original photo" /></div>
         <div class="handle" id="handle"><span>⇆</span></div>
-        <span class="tag tag-l">Before</span>
-        <span class="tag tag-r">After</span>
+        <span class="tag tag-l" id="tagL">Before</span>
+        <span class="tag tag-r" id="tagR">After</span>
+        <div class="brush-cursor hidden" id="brushCursor"></div>
+      </div>
+
+      <div class="tune hidden" id="tune">
+        <label class="slider">
+          <span>Subject solidity <b id="solidityVal">50</b></span>
+          <input type="range" id="solidity" min="0" max="100" value="50" />
+        </label>
+        <label class="check"><input type="checkbox" id="fillHoles" checked /> Fill small holes inside the subject</label>
+        <p class="hint">Parts of the person faded or missing? Raise <b>solidity</b>, or paint them back with the <b>Restore brush</b> (the original shows faintly underneath while you paint).</p>
       </div>
 
       <div class="actions hidden" id="actions">

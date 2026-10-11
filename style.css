@@ -73,9 +73,49 @@ select {
 .compare {
   position: relative; border-radius: var(--radius); overflow: hidden;
   border: 1px solid var(--line); user-select: none; touch-action: none;
-  max-height: 70vh;
+  margin: 0 auto; /* width/height set by JS to match the photo's shape */
 }
-.layer img { display: block; width: 100%; height: auto; max-height: 70vh; object-fit: contain; }
+.compare.painting { cursor: none; }
+.layer { position: absolute; inset: 0; }
+.layer img, .layer canvas {
+  position: absolute; inset: 0; display: block; width: 100%; height: 100%;
+}
+.ghost-img { opacity: 0; transition: opacity .15s; }
+.compare.painting .ghost-img { opacity: .3; }
+.compare.painting .before,
+.compare.painting .handle,
+.compare.painting .tag { display: none; }
+.brush-cursor {
+  position: absolute; border: 2px solid #fff; border-radius: 50%;
+  box-shadow: 0 0 0 1px #000; pointer-events: none; transform: translate(-50%, -50%);
+}
+.brush-cursor.erase { border-color: #ff6b6b; }
+
+.toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; flex-wrap: wrap; margin-bottom: 12px;
+}
+.seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button {
+  border: 0; border-radius: 0; background: transparent; color: var(--muted);
+  padding: 8px 12px; font-size: 14px;
+}
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--accent); color: var(--accent-ink); }
+.brush-tools { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
+.brush-tools input { width: 110px; vertical-align: middle; accent-color: var(--accent); }
+button.small { padding: 7px 12px; font-size: 13px; }
+
+.tune {
+  margin-top: 14px; padding: 14px 16px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px; font-size: 14px;
+}
+.tune .slider { display: flex; flex-direction: column; gap: 6px; }
+.tune .slider span { display: flex; justify-content: space-between; }
+.tune input[type=range] { width: 100%; accent-color: var(--accent); }
+.tune .check { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.tune input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+.hint { color: var(--muted); margin: 10px 0 0; }
 .checker {
   background-color: #fff;
   background-image:
