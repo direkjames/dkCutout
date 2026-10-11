@@ -160,6 +160,26 @@ button {
 .ghost { background: transparent; color: var(--text); }
 .ghost:hover { border-color: var(--muted); }
 
+.top-right { display: flex; align-items: center; gap: 10px; }
+
+dialog#help {
+  width: min(560px, calc(100vw - 32px)); max-height: 85vh; overflow-y: auto;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 22px;
+}
+dialog#help::backdrop { background: rgba(0, 0, 0, .6); }
+.help-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.help-head h2 { font-family: "Space Grotesk", sans-serif; margin: 0; font-size: 22px; }
+dialog#help h3 { color: var(--accent); font-size: 15px; margin: 18px 0 6px; }
+dialog#help p, dialog#help li { color: var(--text); font-size: 14px; margin: 6px 0; }
+dialog#help ul { padding-left: 18px; margin: 6px 0; }
+dialog#help i { color: var(--muted); }
+kbd {
+  font: 12px Inter, sans-serif; padding: 1px 6px; border-radius: 5px;
+  border: 1px solid var(--line); background: var(--bg);
+}
+.help-note { margin-top: 16px !important; color: var(--muted) !important; }
+
 footer {
   text-align: center; color: var(--muted); font-size: 12px; padding: 24px 16px;
 }

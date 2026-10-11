@@ -72,6 +72,16 @@ window.addEventListener("paste", (e) => {
 });
 
 els.again.addEventListener("click", reset);
+
+/* ---------- help popup ---------- */
+const help = $("help");
+$("helpBtn").addEventListener("click", () => help.showModal());
+$("helpClose").addEventListener("click", () => help.close());
+help.addEventListener("click", (e) => { // click outside the box to close
+  const r = help.getBoundingClientRect();
+  const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+  if (!inside) help.close();
+});
 els.download.addEventListener("click", async () => {
   if (!outImage) return;
   const blob = await canvasToBlob(els.resultCanvas);

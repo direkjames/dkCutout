@@ -13,8 +13,39 @@
 <body>
   <header class="top">
     <div class="brand"><span class="logo">✂</span> dk<b>Cutout</b></div>
-    <span class="badge">100% free · runs on your device</span>
+    <div class="top-right">
+      <span class="badge">100% free · runs on your device</span>
+      <button class="ghost small" id="helpBtn">How to use</button>
+    </div>
   </header>
+
+  <dialog id="help">
+    <div class="help-head">
+      <h2>How to use dkCutout</h2>
+      <button class="ghost small" id="helpClose" aria-label="Close">✕</button>
+    </div>
+
+    <h3>1. Add your photo</h3>
+    <p>Drag a photo onto the box, click it to choose a file, or paste one with <kbd>Ctrl</kbd>+<kbd>V</kbd>. PNG, JPG and WEBP work.</p>
+    <p><b>Quality:</b> <i>Best</i> gives cleaner results. <i>Fast</i> is quicker on older phones and PCs. The AI downloads once the first time you use it (40–80 MB), then it's saved in your browser.</p>
+
+    <h3>2. Check the result</h3>
+    <p><b>Compare</b> lets you drag the slider left and right to see the photo before and after. The checkered pattern means transparent.</p>
+
+    <h3>3. Fix anything the AI missed</h3>
+    <ul>
+      <li><b>Subject solidity:</b> parts of the person look faded or see-through? Slide it up. Edges look too hard? Slide it down.</li>
+      <li><b>Fill small holes:</b> automatically patches small gaps inside the person. Leave it on unless it fills something that should be see-through.</li>
+      <li><b>Restore brush:</b> paint back parts the AI removed by mistake. The original photo shows faintly so you can see what to paint.</li>
+      <li><b>Erase brush:</b> paint away leftover background.</li>
+      <li><b>Size</b> changes the brush size, <b>Undo</b> removes your last brush stroke, and <b>Reset</b> removes all brush strokes.</li>
+    </ul>
+
+    <h3>4. Download</h3>
+    <p><b>Download PNG</b> saves your cut-out at the same size as the original photo, with a transparent background. <b>New image</b> starts over.</p>
+
+    <p class="help-note">🔒 Your photos never leave your device. Everything happens in your browser.</p>
+  </dialog>
 
   <main>
     <section class="hero" id="hero">
