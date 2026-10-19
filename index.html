@@ -27,6 +27,7 @@
 
     <h3>1. Add your photo</h3>
     <p>Drag a photo onto the box, click it to choose a file, or paste one with <kbd>Ctrl</kbd>+<kbd>V</kbd>. PNG, JPG and WEBP work.</p>
+    <p><b>Upscale:</b> make the picture 2× or 4× bigger. <i>Best</i> and <i>Fast</i> use AI to rebuild real detail (downloaded once), <i>Classic</i> is a plain smooth resize. Huge photos are processed in small pieces so your browser stays happy. If a size is greyed out, it is too big for your device.</p>
     <p><b>Quality:</b> <i>Best</i> gives cleaner results. <i>Fast</i> is quicker on older phones and PCs. The AI downloads once the first time you use it (40–80 MB), then it's saved in your browser.</p>
 
     <h3>2. Check the result</h3>
@@ -61,7 +62,13 @@
       </label>
 
       <div class="options">
-        <label>Quality
+        <label>Task
+          <select id="task">
+            <option value="cutout" selected>Remove background</option>
+            <option value="upscale">Upscale only (keep the background)</option>
+          </select>
+        </label>
+        <label id="qualityLabel">Quality
           <select id="model">
             <option value="isnet_fp16" selected>Best (≈80 MB, first time only)</option>
             <option value="isnet_quint8">Fast (≈40 MB, first time only)</option>
@@ -108,6 +115,36 @@
         </label>
         <label class="check"><input type="checkbox" id="fillHoles" checked /> Fill small holes inside the subject</label>
         <p class="hint">Parts of the person faded or missing? Raise <b>solidity</b>, or paint them back with the <b>Restore brush</b> (the original shows faintly underneath while you paint).</p>
+      </div>
+
+      <div class="upscale hidden" id="upscale">
+        <div class="up-head">
+          <div>
+            <h2>Upscale</h2>
+            <p class="up-sub" id="upSub">Make it bigger and sharper.</p>
+          </div>
+          <div class="seg" id="scaleChips" role="group" aria-label="Scale"></div>
+        </div>
+        <div class="up-row">
+          <label>Engine
+            <select id="upEngine">
+              <option value="best">Best — AI, sharpest detail</option>
+              <option value="fast">Fast — AI, quicker</option>
+              <option value="classic" selected>Classic — smooth resize, no download</option>
+            </select>
+          </label>
+          <div class="up-size" id="upSize"></div>
+        </div>
+        <div class="up-progress hidden" id="upProgress">
+          <div class="status-text" id="upStatus"></div>
+          <div class="bar"><div class="fill" id="upFill"></div></div>
+        </div>
+        <div class="up-btns">
+          <button class="primary" id="upGo">Upscale</button>
+          <button class="ghost hidden" id="upCancel">Cancel</button>
+          <button class="ghost hidden" id="upUndo">Back to original size</button>
+        </div>
+        <p class="hint" id="upNote"></p>
       </div>
 
       <div class="actions hidden" id="actions">

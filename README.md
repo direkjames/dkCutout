@@ -9,6 +9,8 @@ A free background remover that runs entirely in the visitor's browser. No server
 - AI cut-out runs locally (WebGPU when available, CPU otherwise)
 - Download is a transparent PNG at the **exact original size**
 - Before/after comparison slider
+- **Upscale 2× / 4×**, on the cut-out or on its own ("Upscale only"). Classic works today; the Real-ESRGAN AI engines (Fast/Best) are built in and switch on once model URLs are set in `upscale/models.js`
+- Big photos are upscaled in small tiles in a background worker, with Cancel and per-device size limits
 - Two quality modes: Best (~80 MB model) and Fast (~40 MB model), downloaded once and then cached
 
 ## Run it locally (VS Code)
@@ -23,3 +25,7 @@ ES modules don't load from `file://`, so open it through a local server:
 
 ## License
 This project uses [`@imgly/background-removal`](https://github.com/imgly/background-removal-js), which is AGPL-3.0. Keep this repo public and licensed under AGPL-3.0 (on GitHub: **Add file → Create new file → name it `LICENSE` → Choose a license template → GNU AGPLv3**). Don't add paid features without rechecking the license.
+
+
+## Tests
+`node tests/tiling.test.mjs` checks that tiled upscaling matches a direct upscale exactly (no seams), cancelling, and bad input.
