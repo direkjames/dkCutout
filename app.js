@@ -18,9 +18,9 @@
 
 import * as BG from "https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/+esm";
 
-import { upscaleImage, stopWorker, hasWebGPU, AbortError } from "./upscale/engine.js";
-import { MODELS } from "./upscale/models.js";
-import { allowedScales, checkScale, formatSize, formatEta } from "./upscale/limits.js";
+import { upscaleImage, stopWorker, hasWebGPU, AbortError } from "./upscale/engine.js?v=3";
+import { MODELS } from "./upscale/models.js?v=3";
+import { allowedScales, checkScale, formatSize, formatEta } from "./upscale/limits.js?v=3";
 
 const removeBackground = BG.removeBackground ?? BG.default;
 

@@ -2,7 +2,7 @@
  * dkCutout — AI upscaler worker (keeps the page smooth while the AI runs)
  * Author: direk james
  */
-import { ORT_BASE } from "./models.js";
+import { ORT_BASE } from "./models.js?v=3";
 
 let ort = null, session = null, inputName = "", outputName = "";
 let model = null, backend = "";

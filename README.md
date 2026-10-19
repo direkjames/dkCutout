@@ -35,4 +35,6 @@ This project uses [`@imgly/background-removal`](https://github.com/imgly/backgro
 
 
 ## Tests
+`node tests/version.test.mjs` checks every local file uses the same `?v=` (bump it on every release so browsers never mix old cached files with new ones).
+
 `node tests/tiling.test.mjs` checks that tiled upscaling matches a direct upscale exactly (no seams), cancelling, and bad input.

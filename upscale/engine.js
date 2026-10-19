@@ -9,8 +9,8 @@
  * and then put back together. Doing it this way means transparent areas never
  * smear their colour into the subject.
  */
-import { upscaleTiled, AbortError } from "./tiling.js";
-import { MODELS } from "./models.js";
+import { upscaleTiled, AbortError } from "./tiling.js?v=3";
+import { MODELS } from "./models.js?v=3";
 
 export { AbortError };
 
@@ -118,7 +118,7 @@ function abortable(promise, signal) {
 async function ensureWorker(model, onStatus, signal) {
   if (worker && workerKey === model.id && worker.info) return worker.info;
   stopWorker();
-  const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+  const w = new Worker(new URL("./worker.js?v=3", import.meta.url), { type: "module" });
   worker = w;
   w.addEventListener("message", onWorkerMessage);
   // A crash inside the worker (for example running out of memory) must not leave us waiting forever.
