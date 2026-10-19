@@ -61,39 +61,84 @@ function alphaCanvas(rgba, w, h) {
 }
 
 let worker = null, workerKey = "", nextId = 1;
+const pending = new Map(); // id -> { resolve, reject, onMessage }
+
+function failAll(err) {
+  for (const p of pending.values()) p.reject(err);
+  pending.clear();
+}
 
 function call(msg, transfer, onMessage) {
   return new Promise((resolve, reject) => {
+    if (!worker) return reject(new Error("The AI upscaler is not running."));
     const id = nextId++;
-    const handler = (e) => {
-      const m = e.data;
-      if (m.type === "download") { onMessage?.(m); return; }
-      if (m.id !== id) return;
-      worker.removeEventListener("message", handler);
-      m.type === "error" ? reject(new Error(m.message)) : resolve(m);
-    };
-    worker.addEventListener("message", handler);
+    pending.set(id, { resolve, reject, onMessage });
     worker.postMessage({ ...msg, id }, transfer || []);
   });
 }
 
-export function stopWorker() {
-  worker?.terminate();
-  worker = null; workerKey = "";
+function onWorkerMessage(e) {
+  const m = e.data;
+  if (m.type === "download") {
+    for (const p of pending.values()) p.onMessage?.(m);
+    return;
+  }
+  const p = pending.get(m.id);
+  if (!p) return;
+  pending.delete(m.id);
+  m.type === "error" ? p.reject(new Error(m.message)) : p.resolve(m);
 }
 
-async function ensureWorker(model, onStatus) {
-  const key = model.url;
-  if (worker && workerKey === key) return worker.info;
+export function stopWorker(reason) {
+  worker?.terminate();
+  worker = null; workerKey = "";
+  failAll(reason || new AbortError());
+}
+
+/** Is WebGPU really usable here? Checked once. */
+let gpuCheck = null;
+export function hasWebGPU() {
+  gpuCheck ??= (async () => {
+    try { return !!(await navigator.gpu?.requestAdapter()); } catch { return false; }
+  })();
+  return gpuCheck;
+}
+
+/** Resolve with `promise`, or stop the worker and throw AbortError as soon as `signal` fires. */
+function abortable(promise, signal) {
+  if (!signal) return promise;
+  return new Promise((resolve, reject) => {
+    const onAbort = () => { stopWorker(); reject(new AbortError()); };
+    if (signal.aborted) return onAbort();
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+async function ensureWorker(model, onStatus, signal) {
+  if (worker && workerKey === model.id && worker.info) return worker.info;
   stopWorker();
-  worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
-  workerKey = key;
-  onStatus?.("Loading the AI upscaler (first time downloads it, then it's cached)…", null);
-  worker.info = await call(
-    { type: "init", url: model.url, device: "gpu" in navigator ? "gpu" : "cpu" }, null,
-    (m) => onStatus?.(`Downloading the AI upscaler… ${Math.round(m.fraction * 100)}%`, m.fraction),
-  );
-  return worker.info;
+  const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+  worker = w;
+  w.addEventListener("message", onWorkerMessage);
+  // A crash inside the worker (for example running out of memory) must not leave us waiting forever.
+  w.addEventListener("error", (e) => {
+    e.preventDefault?.();
+    if (worker === w) stopWorker(new Error("The AI upscaler stopped unexpectedly (your device may be low on memory)."));
+  });
+  workerKey = model.id;
+  onStatus?.("Loading the AI upscaler (the first time downloads it, then it's saved)…", null);
+  try {
+    const info = await abortable(call(
+      { type: "init", model, gpu: await hasWebGPU() }, null,
+      (m) => onStatus?.(`Downloading the ${model.label} AI upscaler (${model.size})… ${Math.round(m.fraction * 100)}%`, m.fraction),
+    ), signal);
+    w.info = info;
+    return info;
+  } catch (e) {
+    if (!(e instanceof AbortError)) stopWorker(e);
+    throw e;
+  }
 }
 
 /**
@@ -106,44 +151,60 @@ async function ensureWorker(model, onStatus) {
  * @returns {Promise<HTMLCanvasElement>}
  */
 export async function upscaleImage({ rgba, w, h, engine, scale, onStatus, signal }) {
-  const alphaSmall = alphaCanvas(rgba, w, h);
+  let opaque = true; // photos with no transparency skip the whole alpha pass
+  for (let i = 3; i < rgba.length; i += 4) if (rgba[i] !== 255) { opaque = false; break; }
+
+  /** The transparency at the new size, as one value per pixel (in the R of each RGBA). */
+  const bigAlpha = () => {
+    const small = alphaCanvas(rgba, w, h);
+    const big = classicResize(small, scale);
+    small.width = small.height = 0;
+    const a = big.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, big.width, big.height).data;
+    big.width = big.height = 0;
+    return a;
+  };
+
   const colourSmall = colourCanvas(rgba, w, h);
-  let colourBig;
 
   if (engine === "classic") {
     onStatus?.("Resizing…", null);
-    colourBig = classicResize(colourSmall, scale);
-  } else {
-    const model = MODELS[engine];
-    if (!model?.url) throw new Error("This AI upscaler isn't available yet. Use Classic for now.");
-    const info = await ensureWorker(model, onStatus);
-    if (signal?.aborted) throw new AbortError();
-    const src = colourSmall.getContext("2d").getImageData(0, 0, w, h).data;
-    const out = await upscaleTiled({
-      src, w, h, native: model.native, target: scale, tile: info.tile, pad: 12, signal,
-      runTile: async (t) => {
-        const r = await call({ type: "tile", data: t.data, width: t.width, height: t.height }, [t.data.buffer]);
-        return r.rgba;
-      },
-      onProgress: ({ done, total, etaMs }) =>
-        onStatus?.(`Upscaling… ${done} of ${total} tiles`, done / total, etaMs),
-    });
-    colourBig = makeCanvas(w * scale, h * scale);
-    colourBig.getContext("2d").putImageData(new ImageData(out, w * scale, h * scale), 0, 0);
+    const colourBig = classicResize(colourSmall, scale);
+    colourSmall.width = colourSmall.height = 0;
+    if (opaque) return colourBig;
+    onStatus?.("Finishing the edges…", null);
+    const ctx = colourBig.getContext("2d", { willReadFrequently: true });
+    const img = ctx.getImageData(0, 0, colourBig.width, colourBig.height);
+    const a = bigAlpha();
+    for (let i = 0; i < a.length; i += 4) img.data[i + 3] = a[i];
+    ctx.putImageData(img, 0, 0);
+    return colourBig;
   }
-  colourSmall.width = colourSmall.height = 0;
 
+  const model = MODELS[engine];
+  if (!model) throw new Error("Unknown upscaler.");
+  if (model.needsGpu && !(await hasWebGPU())) {
+    throw new Error(`${model.label} needs a browser with graphics acceleration (WebGPU). Use Fast instead.`);
+  }
+  const info = await ensureWorker(model, onStatus, signal);
   if (signal?.aborted) throw new AbortError();
-  onStatus?.("Finishing the edges…", null);
-  const alphaBig = classicResize(alphaSmall, scale);
-  alphaSmall.width = alphaSmall.height = 0;
-
-  const ctx = colourBig.getContext("2d", { willReadFrequently: true });
-  const img = ctx.getImageData(0, 0, colourBig.width, colourBig.height);
-  const a = alphaBig.getContext("2d", { willReadFrequently: true })
-    .getImageData(0, 0, alphaBig.width, alphaBig.height).data;
-  for (let i = 0; i < a.length; i += 4) img.data[i + 3] = a[i];
-  alphaBig.width = alphaBig.height = 0;
-  ctx.putImageData(img, 0, 0);
-  return colourBig;
+  const src = colourSmall.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, w, h).data;
+  colourSmall.width = colourSmall.height = 0;
+  const out = await upscaleTiled({
+    src, w, h, native: model.native, target: scale, tile: info.tile, pad: 12, signal,
+    runTile: async (t) => {
+      const r = await call({ type: "tile", data: t.data, width: t.width, height: t.height }, [t.data.buffer]);
+      return r.rgba;
+    },
+    onProgress: ({ done, total, etaMs }) =>
+      onStatus?.(`Upscaling… ${done} of ${total} tiles`, done / total, etaMs),
+  });
+  if (signal?.aborted) throw new AbortError();
+  if (!opaque) {
+    onStatus?.("Finishing the edges…", null);
+    const a = bigAlpha(); // written straight into the result: no extra full-size copies
+    for (let i = 3; i < a.length; i += 4) out[i] = a[i - 3];
+  }
+  const big = makeCanvas(w * scale, h * scale);
+  big.getContext("2d").putImageData(new ImageData(out, w * scale, h * scale), 0, 0);
+  return big;
 }

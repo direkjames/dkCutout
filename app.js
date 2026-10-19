@@ -18,7 +18,7 @@
 
 import * as BG from "https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/+esm";
 
-import { upscaleImage, stopWorker, AbortError } from "./upscale/engine.js";
+import { upscaleImage, stopWorker, hasWebGPU, AbortError } from "./upscale/engine.js";
 import { MODELS } from "./upscale/models.js";
 import { allowedScales, checkScale, formatSize, formatEta } from "./upscale/limits.js";
 
@@ -31,7 +31,7 @@ const els = {
   toolbar: $("toolbar"), modes: $("modes"), brushTools: $("brushTools"),
   brushSize: $("brushSize"), undo: $("undo"), resetEdits: $("resetEdits"),
   compare: $("compare"), originalImg: $("originalImg"), ghostImg: $("ghostImg"),
-  resultCanvas: $("resultCanvas"), beforeLayer: $("beforeLayer"), handle: $("handle"),
+  resultCanvas: $("resultCanvas"), upView: $("upView"), tagR: $("tagR"), beforeLayer: $("beforeLayer"), handle: $("handle"),
   brushCursor: $("brushCursor"),
   tune: $("tune"), solidity: $("solidity"), solidityVal: $("solidityVal"), fillHoles: $("fillHoles"),
   actions: $("actions"), meta: $("meta"), again: $("again"), download: $("download"),
@@ -366,6 +366,7 @@ function layout() {
   const scale = Math.min(maxW / W, maxH / H);
   els.compare.style.width = Math.round(W * scale) + "px";
   els.compare.style.height = Math.round(H * scale) + "px";
+  drawUpView();
 }
 window.addEventListener("resize", layout);
 
@@ -555,6 +556,32 @@ function clearUpscale() {
   if (upscaled) upscaled.width = upscaled.height = 0; // free memory right away
   upscaled = null;
   upscaledScale = 1;
+  drawUpView();
+}
+
+/**
+ * Show the upscaled result on the "After" side, so the extra detail is visible.
+ * Only a screen-sized copy is drawn, never a second full-size picture.
+ */
+function drawUpView() {
+  const v = els.upView;
+  if (!upscaled) {
+    v.classList.add("hidden");
+    v.width = v.height = 0;
+    els.tagR.textContent = "After";
+    return;
+  }
+  const box = els.compare.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const s = Math.min(1, (box.width * dpr) / upscaled.width);
+  v.width = Math.max(1, Math.round(upscaled.width * s));
+  v.height = Math.max(1, Math.round(upscaled.height * s));
+  const ctx = v.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(upscaled, 0, 0, v.width, v.height);
+  v.classList.remove("hidden");
+  els.tagR.textContent = `After · ${upscaledScale}×`;
 }
 
 function updateMeta() {
@@ -563,6 +590,32 @@ function updateMeta() {
     ? `${formatSize(upscaled.width, upscaled.height)} · ${upscaledScale}× upscaled · ${kind}`
     : `${formatSize(W, H)} · ${kind}`;
 }
+
+const ENGINE_KEY = "dkcutout.upscaleEngine";
+
+/** Fill in the engine list once: download sizes, and Best only where a graphics chip can run it. */
+async function setupEngines() {
+  const gpu = await hasWebGPU();
+  for (const o of els.upEngine.options) {
+    const m = MODELS[o.value];
+    if (!m) continue;
+    const off = m.needsGpu && !gpu;
+    o.disabled = off;
+    o.textContent = off
+      ? `${m.label} — AI, needs a GPU browser (not available here)`
+      : `${m.label} — AI, ${o.value === "best" ? "sharpest detail" : "quicker"} · ${m.size} download, once`;
+  }
+  let saved = null;
+  try { saved = localStorage.getItem(ENGINE_KEY); } catch { /* storage blocked */ }
+  const pick = [saved, gpu ? "best" : "fast", "classic"]
+    .find((v) => v && [...els.upEngine.options].some((o) => o.value === v && !o.disabled));
+  if (!upscaleAbort) els.upEngine.value = pick;
+}
+setupEngines();
+
+els.upEngine.addEventListener("change", () => {
+  try { localStorage.setItem(ENGINE_KEY, els.upEngine.value); } catch { /* storage blocked */ }
+});
 
 /** Build the scale chips and engine list for the current image. */
 function setupUpscalePanel() {
@@ -576,12 +629,6 @@ function setupUpscalePanel() {
     ? "Make your photo bigger and sharper."
     : "Make the finished cut-out bigger and sharper.";
 
-  // Only offer the AI engines whose model is available.
-  [...els.upEngine.options].forEach((o) => {
-    const m = MODELS[o.value];
-    if (m && !m.url) { o.disabled = true; o.textContent = `${m.label} — AI (coming soon)`; }
-  });
-  if (els.upEngine.selectedOptions[0]?.disabled) els.upEngine.value = "classic";
 
   const ok = allowedScales(W, H);
   els.scaleChips.replaceChildren();
@@ -666,6 +713,7 @@ els.upGo.addEventListener("click", async () => {
     clearUpscale();
     upscaled = canvas;
     upscaledScale = scale;
+    drawUpView();
     els.upNote.textContent = `Done. Your download is now ${formatSize(canvas.width, canvas.height)}.`;
   } catch (err) {
     if (err instanceof AbortError) {
