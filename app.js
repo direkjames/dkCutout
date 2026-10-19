@@ -18,6 +18,10 @@
 
 import * as BG from "https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/+esm";
 
+import { upscaleImage, stopWorker, AbortError } from "./upscale/engine.js";
+import { MODELS } from "./upscale/models.js";
+import { allowedScales, checkScale, formatSize, formatEta } from "./upscale/limits.js";
+
 const removeBackground = BG.removeBackground ?? BG.default;
 
 const $ = (id) => document.getElementById(id);
@@ -31,6 +35,10 @@ const els = {
   brushCursor: $("brushCursor"),
   tune: $("tune"), solidity: $("solidity"), solidityVal: $("solidityVal"), fillHoles: $("fillHoles"),
   actions: $("actions"), meta: $("meta"), again: $("again"), download: $("download"),
+  task: $("task"), qualityLabel: $("qualityLabel"),
+  upscale: $("upscale"), upSub: $("upSub"), scaleChips: $("scaleChips"), upEngine: $("upEngine"),
+  upSize: $("upSize"), upProgress: $("upProgress"), upStatus: $("upStatus"), upFill: $("upFill"),
+  upGo: $("upGo"), upCancel: $("upCancel"), upUndo: $("upUndo"), upNote: $("upNote"),
 };
 
 const HOLE_MAX_FRACTION = 0.015; // holes up to 1.5% of the image get filled
@@ -49,6 +57,11 @@ let mode = "compare";
 let originalUrl = null;
 let downloadName = "image-nobg.png";
 let busy = false;
+let upscaleOnly = false;   // "Upscale only" task: no background removal
+let upscaled = null;       // canvas with the upscaled result, or null
+let upscaledScale = 1;
+let upscaleScale = 4;      // scale chosen in the panel
+let upscaleAbort = null;   // AbortController while an upscale is running
 
 /* ---------- input: click, drag & drop, paste ---------- */
 
@@ -84,11 +97,20 @@ help.addEventListener("click", (e) => { // click outside the box to close
 });
 els.download.addEventListener("click", async () => {
   if (!outImage) return;
-  const blob = await canvasToBlob(els.resultCanvas);
+  els.download.disabled = true;
+  let blob;
+  try {
+    blob = await canvasToBlob(upscaled || els.resultCanvas);
+  } catch (err) {
+    alert(err?.message || "Could not save the image.");
+    return;
+  } finally {
+    els.download.disabled = false;
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = downloadName;
+  a.download = upscaled ? downloadName.replace(/\.png$/, `-${upscaledScale}x.png`) : downloadName;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 });
@@ -103,19 +125,24 @@ async function handleFile(file) {
   }
   busy = true;
   cleanupUrls();
-  downloadName = (file.name || "image").replace(/\.[^.]+$/, "") + "-nobg.png";
+  upscaleOnly = els.task.value === "upscale";
+  downloadName = (file.name || "image").replace(/\.[^.]+$/, "") + (upscaleOnly ? "-upscaled.png" : "-nobg.png");
+  clearUpscale();
 
   els.hero.classList.add("hidden");
   els.work.classList.remove("hidden");
   els.status.classList.remove("hidden");
-  [els.compare, els.actions, els.toolbar, els.tune].forEach((e) => e.classList.add("hidden"));
+  [els.compare, els.actions, els.toolbar, els.tune, els.upscale].forEach((e) => e.classList.add("hidden"));
 
   try {
     setStatus("Reading image…", null);
     const original = await loadOriginal(file);
 
-    setStatus("Loading AI model (first time takes a moment, then it's cached)…", null);
-    const maskBlob = await getMask(original.blob);
+    let maskBlob = null;
+    if (!upscaleOnly) {
+      setStatus("Loading AI model (first time takes a moment, then it's cached)…", null);
+      maskBlob = await getMask(original.blob);
+    }
 
     setStatus("Applying cut-out at full resolution…", null);
     await setupEditor(original.canvas, maskBlob);
@@ -123,10 +150,11 @@ async function handleFile(file) {
     originalUrl = URL.createObjectURL(original.blob);
     els.originalImg.src = originalUrl;
     els.ghostImg.src = originalUrl;
-    els.meta.textContent = `${W} × ${H}px · transparent PNG`;
-
     els.status.classList.add("hidden");
-    [els.compare, els.actions, els.toolbar, els.tune].forEach((e) => e.classList.remove("hidden"));
+    const shown = upscaleOnly ? [els.compare, els.actions, els.upscale] : [els.compare, els.actions, els.toolbar, els.tune, els.upscale];
+    shown.forEach((e) => e.classList.remove("hidden"));
+    setupUpscalePanel();
+    updateMeta();
     setMode("compare");
     layout();
     setSlider(50);
@@ -135,6 +163,7 @@ async function handleFile(file) {
     setStatus("Something went wrong: " + (err?.message || err) + " — try another image or the Fast model.", 0);
     els.actions.classList.remove("hidden");
     els.meta.textContent = "";
+    W = H = 0;
   } finally {
     busy = false;
   }
@@ -174,22 +203,26 @@ async function getMask(imageBlob) {
 }
 
 /** Prepare all the full-resolution buffers and draw the first result. */
-async function setupEditor(originalCanvas, maskBlob) {
+async function setupEditor(originalCanvas, maskBlob) { // maskBlob is null for "Upscale only"
   W = originalCanvas.width;
   H = originalCanvas.height;
   origPixels = originalCanvas.getContext("2d").getImageData(0, 0, W, H).data;
 
-  // The library's mask is white with the cut-out stored in the alpha channel.
-  const maskBmp = await createImageBitmap(maskBlob);
-  const maskCanvas = makeCanvas(W, H);
-  const mctx = maskCanvas.getContext("2d", { willReadFrequently: true });
-  mctx.imageSmoothingEnabled = true;
-  mctx.imageSmoothingQuality = "high";
-  mctx.drawImage(maskBmp, 0, 0, W, H);
-  maskBmp.close?.();
-  const m = mctx.getImageData(0, 0, W, H).data;
   rawAlpha = new Uint8Array(W * H);
-  for (let i = 0, j = 3; i < rawAlpha.length; i++, j += 4) rawAlpha[i] = m[j];
+  if (!maskBlob) {
+    rawAlpha.fill(255); // keep everything
+  } else {
+    // The library's mask is white with the cut-out stored in the alpha channel.
+    const maskBmp = await createImageBitmap(maskBlob);
+    const maskCanvas = makeCanvas(W, H);
+    const mctx = maskCanvas.getContext("2d", { willReadFrequently: true });
+    mctx.imageSmoothingEnabled = true;
+    mctx.imageSmoothingQuality = "high";
+    mctx.drawImage(maskBmp, 0, 0, W, H);
+    maskBmp.close?.();
+    const m = mctx.getImageData(0, 0, W, H).data;
+    for (let i = 0, j = 3; i < rawAlpha.length; i++, j += 4) rawAlpha[i] = m[j];
+  }
 
   els.resultCanvas.width = W;
   els.resultCanvas.height = H;
@@ -278,6 +311,12 @@ function fillSmallHoles(alpha) {
 
 /** Combine original pixels + cleaned mask + brush layers for one rectangle. */
 function renderRegion(x, y, w, h) {
+  if (upscaled) {
+    clearUpscale(); // the picture changed, so the old upscale no longer matches
+    setupUpscalePanel();
+    updateMeta();
+    els.upNote.textContent = "You changed the cut-out, so the upscale was reset. Upscale again when you're happy.";
+  }
   x = Math.max(0, Math.floor(x)); y = Math.max(0, Math.floor(y));
   w = Math.min(W - x, Math.ceil(w)); h = Math.min(H - y, Math.ceil(h));
   if (w <= 0 || h <= 0) return;
@@ -498,6 +537,9 @@ function cleanupUrls() {
 
 function reset() {
   if (busy) return;
+  upscaleAbort?.abort();
+  stopWorker();
+  clearUpscale();
   cleanupUrls();
   W = H = 0;
   origPixels = rawAlpha = baseAlpha = outImage = null;
@@ -506,3 +548,148 @@ function reset() {
   els.work.classList.add("hidden");
   els.hero.classList.remove("hidden");
 }
+
+/* ---------- upscaling ---------- */
+
+function clearUpscale() {
+  if (upscaled) upscaled.width = upscaled.height = 0; // free memory right away
+  upscaled = null;
+  upscaledScale = 1;
+}
+
+function updateMeta() {
+  const kind = upscaleOnly ? "PNG" : "transparent PNG";
+  els.meta.textContent = upscaled
+    ? `${formatSize(upscaled.width, upscaled.height)} · ${upscaledScale}× upscaled · ${kind}`
+    : `${formatSize(W, H)} · ${kind}`;
+}
+
+/** Build the scale chips and engine list for the current image. */
+function setupUpscalePanel() {
+  els.upNote.textContent = "";
+  els.upProgress.classList.add("hidden");
+  els.upGo.classList.remove("hidden");
+  els.upCancel.classList.add("hidden");
+  els.upUndo.classList.toggle("hidden", !upscaled);
+  els.upGo.textContent = upscaled ? "Upscale again" : "Upscale";
+  els.upSub.textContent = upscaleOnly
+    ? "Make your photo bigger and sharper."
+    : "Make the finished cut-out bigger and sharper.";
+
+  // Only offer the AI engines whose model is available.
+  [...els.upEngine.options].forEach((o) => {
+    const m = MODELS[o.value];
+    if (m && !m.url) { o.disabled = true; o.textContent = `${m.label} — AI (coming soon)`; }
+  });
+  if (els.upEngine.selectedOptions[0]?.disabled) els.upEngine.value = "classic";
+
+  const ok = allowedScales(W, H);
+  els.scaleChips.replaceChildren();
+  for (const s of [2, 4]) {
+    const b = document.createElement("button");
+    b.textContent = `${s}×`;
+    b.dataset.scale = s;
+    b.disabled = !ok.includes(s);
+    b.title = b.disabled ? "Too big for this device" : "";
+    els.scaleChips.append(b);
+  }
+  if (!ok.length) {
+    els.upGo.disabled = true;
+    els.upSize.textContent = "This image is already too large to upscale on this device.";
+    return;
+  }
+  els.upGo.disabled = false;
+  upscaleScale = ok.includes(upscaleScale) ? upscaleScale : ok[ok.length - 1];
+  selectScale(upscaleScale);
+}
+
+function selectScale(s) {
+  upscaleScale = s;
+  [...els.scaleChips.children].forEach((b) => b.classList.toggle("on", Number(b.dataset.scale) === s));
+  const r = checkScale(W, H, s);
+  els.upSize.innerHTML = `${formatSize(W, H)} → <b>${formatSize(r.width, r.height)}</b>`;
+}
+
+els.scaleChips.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-scale]");
+  if (b && !b.disabled && !upscaleAbort) selectScale(Number(b.dataset.scale));
+});
+
+els.upUndo.addEventListener("click", () => {
+  if (upscaleAbort) return;
+  clearUpscale();
+  setupUpscalePanel();
+  updateMeta();
+});
+
+els.upCancel.addEventListener("click", () => {
+  upscaleAbort?.abort();
+  els.upCancel.disabled = true;
+  els.upStatus.textContent = "Cancelling…";
+});
+
+els.upGo.addEventListener("click", async () => {
+  if (!outImage || upscaleAbort || busy) return;
+  const scale = upscaleScale;
+  if (!checkScale(W, H, scale).ok) return;
+
+  const engine = els.upEngine.value;
+  upscaleAbort = new AbortController();
+  busy = true;
+  els.upNote.textContent = "";
+  els.upGo.classList.add("hidden");
+  els.upUndo.classList.add("hidden");
+  els.upCancel.classList.toggle("hidden", engine === "classic");
+  els.upCancel.disabled = false;
+  els.upProgress.classList.remove("hidden");
+  els.download.disabled = true;
+  els.again.disabled = true;
+  els.upEngine.disabled = true;
+  els.work.classList.add("working");
+
+  const setUp = (text, fraction, etaMs) => {
+    els.upStatus.textContent = etaMs != null ? `${text} · ${formatEta(etaMs)} left` : text;
+    if (fraction == null) {
+      els.upFill.classList.add("indeterminate");
+      els.upFill.style.width = "";
+    } else {
+      els.upFill.classList.remove("indeterminate");
+      els.upFill.style.width = Math.round(fraction * 100) + "%";
+    }
+  };
+
+  try {
+    const canvas = await upscaleImage({
+      rgba: outImage.data, w: W, h: H, engine, scale,
+      onStatus: setUp, signal: upscaleAbort.signal,
+    });
+    clearUpscale();
+    upscaled = canvas;
+    upscaledScale = scale;
+    els.upNote.textContent = `Done. Your download is now ${formatSize(canvas.width, canvas.height)}.`;
+  } catch (err) {
+    if (err instanceof AbortError) {
+      els.upNote.textContent = "Upscale cancelled.";
+    } else {
+      console.error(err);
+      els.upNote.textContent = "Couldn't upscale: " + (err?.message || err) +
+        (err instanceof RangeError || /memory|allocation/i.test(String(err?.message))
+          ? " Try 2× or the Classic engine." : "");
+    }
+  } finally {
+    upscaleAbort = null;
+    busy = false;
+    els.download.disabled = false;
+    els.again.disabled = false;
+    els.upEngine.disabled = false;
+    els.work.classList.remove("working");
+    const note = els.upNote.textContent;
+    setupUpscalePanel();
+    els.upNote.textContent = note;
+    updateMeta();
+  }
+});
+
+els.task.addEventListener("change", () => {
+  els.qualityLabel.classList.toggle("hidden", els.task.value === "upscale");
+});
