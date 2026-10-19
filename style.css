@@ -84,7 +84,8 @@ select {
 .compare.painting .ghost-img { opacity: .3; }
 .compare.painting .before,
 .compare.painting .handle,
-.compare.painting .tag { display: none; }
+.compare.painting .tag,
+.compare.painting #upView { display: none; }
 .brush-cursor {
   position: absolute; border: 2px solid #fff; border-radius: 50%;
   box-shadow: 0 0 0 1px #000; pointer-events: none; transform: translate(-50%, -50%);
